@@ -1,0 +1,116 @@
+{
+  "distribution": "cupboard",
+  "kind": "plugin",
+  "name": "threads",
+  "version": "0.1.0",
+  "papercusp": "^0.1.0",
+  "description": "Threads provider package for paged conversation reads and host-gated text publishing.",
+  "author": "Papercusp",
+  "license": "MIT",
+  "main": "./index.cjs",
+  "runtime": { "kind": "daemon", "daemonCommand": ["node", "daemon.cjs"] },
+  "capabilities": [],
+  "tools": [],
+  "provider": {
+    "rateBudget": {
+      "verifiedAt": "2026-08-23",
+      "sources": [
+        "https://developers.facebook.com/docs/threads/overview",
+        "https://developers.facebook.com/docs/threads/posts",
+        "https://developers.facebook.com/docs/threads/reply-management",
+        "https://developers.facebook.com/docs/threads/retrieve-and-manage-replies/create-replies/",
+        "https://developers.facebook.com/docs/threads/retrieve-and-manage-replies/retrieve-replies/",
+        "https://developers.facebook.com/docs/threads/retrieve-and-manage-replies/replies-and-conversations/",
+        "https://developers.facebook.com/docs/threads/troubleshooting/",
+        "https://developers.facebook.com/docs/permissions",
+        "https://developers.facebook.com/docs/graph-api/overview/rate-limiting"
+      ],
+      "dynamicQuota": {
+        "formula": "Calls within 24 hours = 4800 * Number of Impressions",
+        "driver": "the number of times the app user's Threads content has entered a person's screen within the last 24 hours",
+        "assumedDailyFloor": 48000,
+        "retryExtendsBlock": true
+      },
+      "buckets": {
+        "publishing": {
+          "appliesTo": "POST /{threads-user-id}/threads_publish — \"Threads profiles are limited to 250 published posts within a 24-hour moving period\" (a carousel counts as one)",
+          "perDay": 250,
+          "unit": "calls",
+          "verbs": [
+            "post"
+          ],
+          "notes": "Call-capped, not unit-capped: the cap counts PUBLISHES regardless of media size, and is enforced on threads_publish — so container creation and status polling do not draw on it. Unlike Instagram, the vendor does not contradict itself on this figure."
+        },
+        "replies": {
+          "appliesTo": "the reply half of POST /{threads-user-id}/threads_publish — \"Threads profiles are limited to 1,000 replies within a 24-hour moving period\"",
+          "perDay": 1000,
+          "unit": "calls",
+          "verbs": [
+            "reply"
+          ],
+          "notes": "DECLARED, WHERE INSTAGRAM'S WAS NOT. A Threads reply publishes through the same endpoint as a post but draws on a separate, four-times-larger allowance, so a reply may NOT be rationed against the publishing bucket and vice versa. This is exactly the pairing D-030 amended D-029 for."
+        },
+        "deletions": {
+          "appliesTo": "post deletion — 100 within a 24-hour moving period",
+          "perDay": 100,
+          "unit": "calls",
+          "verbs": [
+            "delete"
+          ],
+          "notes": "Recorded although `delete` is NOT in this row's write.verbs and threads_delete is not requested: the bucket is documented, and omitting it would leave a later item to rediscover it. Declaring a bucket is not declaring the capability."
+        },
+        "locationSearch": {
+          "appliesTo": "location search — 500 within a 24-hour moving period",
+          "perDay": 500,
+          "unit": "calls",
+          "notes": "No `verbs`: location search maps to no verb in this registry's vocabulary, and per SocialQuotaBucket an omitted `verbs` means \"not stated for any verb\" — a consumer must never match it. Recorded for completeness only."
+        }
+      },
+      "notes": "⚠⚠ THE WEAKEST OBSERVABILITY POSITION OF ANY PLATFORM IN THIS REGISTRY, and it is worth stating plainly because the row otherwise looks richer than Instagram's. THE BUCKETS ARE QUERYABLE AND THE CALL BUDGET IS NOT OBSERVABLE AT ALL. GET /{threads-user-id}/threads_publishing_limit returns ABSOLUTE figures for all four buckets (quota_usage/config, reply_quota_usage/reply_config, delete_*, location_search_*, each with quota_duration 86400) — strictly better than Instagram, whose header reports only percentages. But the 4800-per-impression CALL budget has neither an endpoint nor a header: nothing reports its consumption, so `observedPeakUsagePct` can never become non-null and the cap rests on assumedDailyFloor permanently. Combined with the absence of any documented throttle code, this means a Threads throttle can be neither predicted nor recognised — only avoided by rationing. THAT is why retryExtendsBlock is set: the \"stop making API calls / continuing to make calls will continue to increase your call count, which will increase the time before calls will be successful again\" guidance is stated in the Best Practices of BOTH the Platform and Business Use Case rate-limit systems, not scoped to any single product, so it governs Threads even though Threads appears in neither the error-code table nor the header type list. A generic exponential-backoff wrapper here would deepen every throttle it touched while presenting as provider flakiness. CPU-time limits scale the same way: 720000 × impressions for total_cputime, 2880000 × impressions for total_time."
+    },
+    "verification": {
+      "verifiedAt": "2026-10-16",
+      "sources": [
+        "https://developers.facebook.com/docs/threads/posts/",
+        "https://developers.facebook.com/docs/threads/troubleshooting/",
+        "https://developers.facebook.com/docs/threads/retrieve-and-manage-replies/replies-and-conversations/"
+      ],
+      "capabilities": {
+        "social.post": "2026-10-16",
+        "social.reply": "2026-10-16"
+      }
+    },
+    "id": "threads",
+    "contractVersion": 1,
+    "displayName": "Threads",
+    "datatypes": ["social-post"],
+    "capabilities": ["social.post", "social.reply"],
+    "egressHosts": ["graph.threads.net", "www.threads.net"],
+    "oauth": {
+      "authorizeUrl": "https://www.threads.net/oauth/authorize",
+      "tokenUrl": "https://graph.threads.net/oauth/access_token",
+      "clientRegistrationRef": "threads",
+      "refreshPolicy": "reauthorize",
+      "scopes": ["threads_basic", "threads_content_publish", "threads_manage_replies", "threads_read_replies"],
+      "identity": { "url": "https://graph.threads.net/v1.0/me?fields=id,username", "idField": "id", "displayNameField": "username" }
+    },
+    "defaultDestinations": { "social-post": ["document", "event"] },
+    "setup": {
+      "appRegistration": {
+        "createUrl": "https://developers.facebook.com/apps/",
+        "docsUrl": "https://developers.facebook.com/docs/threads/",
+        "copyHint": "Create a Threads app, configure the OAuth callback, and request the declared Threads scopes."
+      }
+    },
+    "configSchema": {
+      "type": "object",
+      "required": ["userId"],
+      "properties": {
+        "userId": { "type": "string", "title": "Threads user id", "pattern": "^[0-9]+$" },
+        "watchWindow": { "type": "integer", "minimum": 1, "maximum": 25, "default": 25 },
+        "maxPagesPerMedia": { "type": "integer", "minimum": 1, "maximum": 50, "default": 50 }
+      },
+      "additionalProperties": false
+    }
+  }
+}
